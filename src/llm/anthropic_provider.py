@@ -1,7 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import AsyncIterable
+
 from anthropic import AsyncAnthropic
-from src.llm.types import ChatOptions, ChatResponse, Message
+from src.llm.types import ChatOptions, ChatResponse, Message, StreamEvent
+
 
 @dataclass
 class AnthropicConfig:
@@ -47,3 +50,30 @@ class AnthropicProvider:
                 "output_tokens": response.usage.output_tokens,
             }
         )
+
+    async def stream(self, messages: list[Message], options: ChatOptions | None = None) -> AsyncIterable[StreamEvent]:
+        options = options or ChatOptions()
+
+        params: dict = {
+            "model": self._model,
+            "max_tokens": options.max_tokens or 4096,
+            "messages": [
+                {"role": m.role, "content": m.content} for m in messages
+            ]
+        }
+
+        if options.system:
+            params["system"] = options.system
+
+        yield StreamEvent(type="message_start")
+
+        async with self._client.messages.create(**params) as stream:
+            async for event in stream:
+                if (
+                    event.type == "content_block_delta"
+                    and event.delta.type == "text_delta"
+                ):
+                    yield StreamEvent(type="text_delta", text=event.delta.text)
+
+        yield StreamEvent(type="message_stop")
+

@@ -1,7 +1,13 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Protocol, AsyncIterable
 
+
+@dataclass
+class StreamEvent:
+    """Event emitted by LLM when a message is received."""
+    type: str # "message_start", "text_delta", "message_stop", "error"
+    text: str | None = None
 
 @dataclass
 class Message:
@@ -27,4 +33,7 @@ class LLMProvider(Protocol):
     """Unified interface for LLM providers."""
 
     async def chat(self, messages: list[Message], options: ChatOptions | None = None) -> ChatResponse:
+        ...
+
+    async def stream(self, messages: list[Message], options: ChatOptions | None = None) -> AsyncIterable[StreamEvent]:
         ...

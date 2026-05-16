@@ -1,8 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from openai import AsyncOpenAI
-from src.llm.types import ChatOptions, ChatResponse, Message
+from typing import AsyncIterable
 
+from openai import AsyncOpenAI
+from src.llm.types import ChatOptions, ChatResponse, Message, StreamEvent
 
 
 @dataclass
@@ -58,3 +59,22 @@ class OpenAICompatibleProvider:
                 ),
             },
         )
+
+    async def stream(self, messages: list[Message], options: ChatOptions | None = None) -> AsyncIterable[StreamEvent]:
+        options = options or ChatOptions()
+
+        response = await self._client.chat.completions.create(
+            model=self._model,
+            max_tokens=options.max_tokens or 4096,
+            messages=self._format_messages(messages, options.system),
+            stream=True,
+        )
+
+        yield StreamEvent(type="message_start")
+
+        async for chunk in response:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta and delta.content:
+                yield StreamEvent(type="text_delta", text=delta.content)
+
+        yield StreamEvent(type="message_stop")
