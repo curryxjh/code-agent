@@ -1,6 +1,6 @@
-from llm.anthropic_provider import AnthropicProvider, AnthropicConfig
-from llm.openai_compatible import OpenAICompatibleProvider, OpenAICompatibleConfig
-from openai import base_url
+from dataclasses import dataclass
+from src.llm.anthropic_provider import AnthropicProvider, AnthropicConfig
+from src.llm.openai_compatible import OpenAICompatibleProvider, OpenAICompatibleConfig
 
 
 @dataclass
@@ -33,3 +33,5 @@ def create_provider(config: ProviderConfig):
                 model=config.model
             ),
         )
+
+    raise ValueError(f"Unknown provider: {config.provider}")

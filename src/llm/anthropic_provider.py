@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from anthropic import AsyncAnthropic
-from .types import ChatOptions, ChatResponse, Message
+from src.llm.types import ChatOptions, ChatResponse, Message
 
 @dataclass
 class AnthropicConfig:
