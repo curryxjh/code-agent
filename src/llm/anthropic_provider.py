@@ -3,7 +3,12 @@ from dataclasses import dataclass
 from typing import AsyncIterable
 
 from anthropic import AsyncAnthropic
-from src.llm.types import ChatOptions, ChatResponse, Message, StreamEvent
+from openai.resources.containers.files import content
+
+from src.llm.types import (
+    ChatOptions, ChatResponse, Message, StreamEvent,
+    TextBlock, ToolUseBlock, ToolResultBlock, ContentBlock
+)
 
 
 @dataclass
@@ -18,6 +23,35 @@ class AnthropicProvider:
         self._client = AsyncAnthropic(api_key=config.api_key)
         self._model = config.model
 
+    @staticmethod
+    def _format_content(content) -> str | list[dict]:
+        """Convert content to Anthropic format."""
+        if isinstance(content, str):
+            return content
+
+        result = []
+
+        for block in content:
+            if block.type == "text":
+                result.append({"type": "text", "text": block.text})
+            elif block.type == "tool_use":
+                result.append({
+                    "type": "tool_use",
+                    "id": block.id,
+                    "name": block.name,
+                    "input": block.input,
+                })
+            elif block.type == "tool_result":
+                d = {
+                    "type": "tool_result",
+                    "tool_use_id": block.tool_use_id,
+                    "content": block.content,
+                }
+                if block.is_error:
+                    d["is_error"] = True
+                result.append(d)
+            return result
+
     async def chat(self, messages: list[Message], options: ChatOptions | None = None) -> ChatResponse:
         options = options or ChatOptions()
 
@@ -25,25 +59,51 @@ class AnthropicProvider:
             "model": self._model,
             "max_tokens": options.max_tokens or 4096,
             "messages": [
-                {"role": m.role, "content": m.content} for m in messages
+                {"role": m.role, "content": self._format_content(m.content)} for m in messages
             ]
         }
 
         if options.system:
             params["system"] = options.system
 
+        if options.tools:
+            params["tools"] = [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "function": t.function,
+                }
+                for t in options.tools
+            ]
+
         response = await self._client.messages.create(**params)
 
-        text = "".join(
-            b.text for b in response.content if b.type == "text"
-        )
+        # Parse response content blocks
+        content_blocks: list = []
+        for b in response.content:
+            if b.type == "tool_use":
+                content_blocks.append(
+                    ToolUseBlock(
+                        id=b.id,
+                        name=b.name,
+                        input=b.input
+                    )
+                )
+            else:
+                content_blocks.append(TextBlock(text=b.text))
 
-        stop_reason = (
-            "end_turn" if response.stop_reason == "end_turn" else "max_tokens"
-        )
+        text = "".join(b.text for b in content_blocks if b.type == "text")
+
+        if response.stop_reason == "end_turn":
+            stop_reason = "end_turn"
+        elif response.stop_reason == "tool_use":
+            stop_reason = "tool_use"
+        else:
+            stop_reason = "max_tokens"
 
         return ChatResponse(
             text=text,
+            content=content_blocks,
             stop_reason=stop_reason,
             usage={
                 "input_tokens": response.usage.input_tokens,
@@ -58,7 +118,7 @@ class AnthropicProvider:
             "model": self._model,
             "max_tokens": options.max_tokens or 4096,
             "messages": [
-                {"role": m.role, "content": m.content} for m in messages
+                {"role": m.role, "content": self._format_content(m.content)} for m in messages
             ]
         }
 

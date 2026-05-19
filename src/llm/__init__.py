@@ -1,4 +1,6 @@
-from .types import Message, ChatResponse, ChatOptions, LLMProvider, StreamEvent
+from .types import (
+    Message, ChatResponse, ChatOptions, LLMProvider, StreamEvent, Tool, TextBlock, ToolUseBlock, ToolResultBlock, ContentBlock
+)
 from .anthropic_provider import AnthropicProvider, AnthropicConfig
 from .openai_compatible import OpenAICompatibleProvider, OpenAICompatibleConfig
 from .factory import create_provider, ProviderConfig
@@ -9,6 +11,12 @@ __all__ = [
     "ChatOptions",  # 调用聊天接口的参数
     "LLMProvider",  # LLM 提供者的抽象接口
     "StreamEvent", # 流式输出的事件类型
+    # Tool 工具类相关定义
+    "Tool",
+    "TextBlock",
+    "ToolUseBlock",
+    "ToolResultBlock",
+    "ContentBlock",
     "AnthropicProvider",  # Anthropic 兼容模型提供者
     "AnthropicConfig",  # Anthropic 兼容模型配置
     "OpenAICompatibleProvider",  # OpenAI 兼容模型提供者

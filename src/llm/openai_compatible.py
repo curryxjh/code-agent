@@ -1,9 +1,11 @@
 from __future__ import annotations
+
+import json
 from dataclasses import dataclass
 from typing import AsyncIterable
 
 from openai import AsyncOpenAI
-from src.llm.types import ChatOptions, ChatResponse, Message, StreamEvent
+from src.llm.types import ChatOptions, ChatResponse, Message, StreamEvent, TextBlock, ToolUseBlock, ToolResultBlock
 
 
 @dataclass
@@ -30,7 +32,38 @@ class OpenAICompatibleProvider:
         if system:
             formatted.append({"role": "system", "content": system})
         for m in messages:
-            formatted.append({"role": m.role, "content": m.content})
+            if isinstance(m.content, str):
+                formatted.append({"role": m.role, "content": m.content})
+                continue
+            # ContentBlock list
+            if m.role == "assistant":
+                text_parts = [b for b  in m.content if b.type == "text"]
+                tool_uses = [b for b in m.content if b.type == "tool_use"]
+                msg = {
+                    "role": m.role,
+                    "content": "".join(b.text for b in text_parts) if text_parts else None,
+                }
+                if tool_uses:
+                    msg["tool_calls"] = [
+                        {
+                            "id": t.id,
+                            "type": "function",
+                            "function": {
+                                "name": t.name,
+                                "arguments": json.dumps(t.input),
+                            },
+                        }
+                        for t in tool_uses
+                    ]
+                formatted.append(msg)
+            else:
+                for block in m.content:
+                    if block.type == "tool_result":
+                        formatted.append({
+                            "role": "tool",
+                            "tool_call_id": block.tool_use_id,
+                            "content": block.content,
+                        })
         return formatted
 
     async def chat(
@@ -38,18 +71,51 @@ class OpenAICompatibleProvider:
     ) -> ChatResponse:
         options = options or ChatOptions()
 
-        response = await self._client.chat.completions.create(
-            model=self._model,
-            max_tokens=options.max_tokens or 4096,
-            messages=self._format_messages(messages, options.system),
-        )
+        create_params: dict = {
+            "model": self._model,
+            "max_tokens": options.max_tokens or 4096,
+            "messages": self._format_messages(messages, options.system),
+        }
+
+        if options.tools:
+            create_params["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.input_schema,
+                    },
+                }
+                for t in options.tools
+            ]
+
+        response = await self._client.chat.completions.create(**create_params)
 
         choice = response.choices[0]
-        stop_reason = (
-            "end_turn" if choice.finish_reason == "stop" else "max_tokens"
-        )
+
+        content_blocks = []
+        if choice.message.content:
+            content_blocks.append(TextBlock(text=choice.message.content))
+        if choice.message.tool_calls:
+            for tc in choice.message.tool_calls:
+                content_blocks.append(
+                    ToolUseBlock(
+                        id=tc.id,
+                        name=tc.function.name,
+                        input=json.loads(tc.function.arguments),
+                    )
+                )
+
+        if choice.finish_reason == "stop":
+            stop_reason = "end_turn"
+        elif choice.finish_reason == "tool_calls":
+            stop_reason = "tool_use"
+        else:
+            stop_reason = "max_tokens"
 
         return ChatResponse(
+            content=content_blocks,
             text=choice.message.content or "",
             stop_reason=stop_reason,
             usage={
