@@ -67,7 +67,7 @@ class AnthropicProvider:
 
         yield StreamEvent(type="message_start")
 
-        async with self._client.messages.create(**params) as stream:
+        async with self._client.messages.stream(**params) as stream:
             async for event in stream:
                 if (
                     event.type == "content_block_delta"
