@@ -1,10 +1,11 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 
-from src.llm.anthropic_provider import AnthropicProvider, AnthropicConfig
-from src.llm.openai_compatible import OpenAICompatibleProvider, OpenAICompatibleConfig
-from src.llm.types import Message, StreamEvent
+from src.llm import (
+    StreamEvent, AnthropicConfig, AnthropicProvider,
+    Message, OpenAICompatibleProvider, OpenAICompatibleConfig
+)
 
 
 async def collect_events(stream) -> list[StreamEvent]:
@@ -14,14 +15,17 @@ async def collect_events(stream) -> list[StreamEvent]:
         events.append(event)
     return events
 
-
 @pytest.mark.asyncio
 class TestAnthropicStreaming:
     async def test_yield_stream_events(self):
         with patch("src.llm.anthropic_provider.AsyncAnthropic"):
-            provider = AnthropicProvider(AnthropicConfig(api_key="test-key"))
+            provider = AnthropicProvider(
+                AnthropicConfig(
+                    api_key="test-key",
+                )
+            )
 
-        # Mock the stream context manager
+        # mock the stream context manager
         mock_event1 = MagicMock()
         mock_event1.type = "content_block_delta"
         mock_event1.delta.type = "text_delta"
@@ -30,7 +34,7 @@ class TestAnthropicStreaming:
         mock_event2 = MagicMock()
         mock_event2.type = "content_block_delta"
         mock_event2.delta.type = "text_delta"
-        mock_event2.delta.text = " world"
+        mock_event2.delta.text = " World"
 
         mock_stream = MagicMock()
         mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
@@ -48,7 +52,7 @@ class TestAnthropicStreaming:
 
         assert events[0].type == "message_start"
         assert events[1] == StreamEvent(type="text_delta", text="Hello")
-        assert events[2] == StreamEvent(type="text_delta", text=" world")
+        assert events[2] == StreamEvent(type="text_delta", text=" World")
         assert events[-1].type == "message_stop"
 
     async def test_full_text_from_deltas(self):
@@ -63,11 +67,12 @@ class TestAnthropicStreaming:
         mock_event2 = MagicMock()
         mock_event2.type = "content_block_delta"
         mock_event2.delta.type = "text_delta"
-        mock_event2.delta.text = " world"
+        mock_event2.delta.text = " World"
 
         mock_stream = MagicMock()
         mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
         mock_stream.__aexit__ = AsyncMock(return_value=False)
+
         async def async_iter():
             yield mock_event1
             yield mock_event2
@@ -81,7 +86,8 @@ class TestAnthropicStreaming:
         async for event in provider.stream(messages):
             if event.type == "text_delta" and event.text:
                 full_text += event.text
-        assert full_text == "Hello world"
+        print("full_text", full_text)
+        assert full_text == "Hello World"
 
 
 @pytest.mark.asyncio
@@ -109,6 +115,7 @@ class TestOpenAICompatibleStreaming:
             async def gen():
                 yield mock_chunk1
                 yield mock_chunk2
+
             return gen()
 
         provider._client.chat.completions.create = mock_create
@@ -143,6 +150,7 @@ class TestOpenAICompatibleStreaming:
             async def gen():
                 yield mock_chunk1
                 yield mock_chunk2
+
             return gen()
 
         provider._client.chat.completions.create = mock_create

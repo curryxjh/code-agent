@@ -39,7 +39,7 @@ class OpenAICompatibleProvider:
             if m.role == "assistant":
                 text_parts = [b for b  in m.content if b.type == "text"]
                 tool_uses = [b for b in m.content if b.type == "tool_use"]
-                msg = {
+                msg: dict[str, str | None | list[dict]] = {
                     "role": m.role,
                     "content": "".join(b.text for b in text_parts) if text_parts else None,
                 }

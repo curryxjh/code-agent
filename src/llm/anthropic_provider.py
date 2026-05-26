@@ -25,12 +25,10 @@ class AnthropicProvider:
 
     @staticmethod
     def _format_content(content) -> str | list[dict]:
-        """Convert content to Anthropic format."""
+        """Convert content to Anthropic API format."""
         if isinstance(content, str):
             return content
-
         result = []
-
         for block in content:
             if block.type == "text":
                 result.append({"type": "text", "text": block.text})
@@ -50,7 +48,7 @@ class AnthropicProvider:
                 if block.is_error:
                     d["is_error"] = True
                 result.append(d)
-            return result
+        return result
 
     async def chat(self, messages: list[Message], options: ChatOptions | None = None) -> ChatResponse:
         options = options or ChatOptions()
@@ -71,7 +69,7 @@ class AnthropicProvider:
                 {
                     "name": t.name,
                     "description": t.description,
-                    "function": t.function,
+                    "input_schema": t.input_schema,
                 }
                 for t in options.tools
             ]
