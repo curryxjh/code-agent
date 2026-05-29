@@ -49,7 +49,7 @@ def _generate_diff(old_content: str, new_content: str, file_path: str) -> str:
         new_lines,
         fromfile=f'a/{file_path}',
         tofile=f'b/{file_path}',
-        n=max(len(old_lines), len(new_lines)),  # 展示完整文件内容，不截断上下文
+        n=3,
     ))
     
     if not diff:
