@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from src.llm import Tool
+
 TaskStatus = str # "pending", "in_progress", "completed", "failed"
 
 @dataclass
@@ -69,3 +71,93 @@ class TaskManager:
     @property
     def length(self) -> int:
         return len(self._tasks)
+
+# Tool definitions for task management
+TASK_CREATE_TOOL_DEFINITION = Tool(
+    name="task_create",
+    description="Create a new task in the plan. Returns the task ID.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "description": {
+                "type": "string",
+                "description": "Description of the task to create",
+            },
+        },
+        "required": ["description"],
+    },
+)
+
+TASK_UPDATE_TOOL_DEFINITION = Tool(
+    name="task_update",
+    description=(
+        'Update the status of an existing task. '
+        'Status can be "pending", "in_progress", "completed", or "failed".'
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "id": {
+                "type": "string",
+                "description": "The task ID to update",
+            },
+            "status": {
+                "type": "string",
+                "enum": ["pending", "in_progress", "completed", "failed"],
+                "description": "The new status for the task",
+            },
+        },
+        "required": ["id", "status"],
+    },
+)
+
+TASK_LIST_TOOL_DEFINITION = Tool(
+    name="task_list",
+    description=(
+        "List all tasks in the current plan with their status. "
+        "Optionally filter by status."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "enum": ["pending", "in_progress", "completed", "failed"],
+                "description": "Filter tasks by status (optional)",
+            },
+        },
+    },
+)
+
+def execute_task_tool(
+        manager: TaskManager, name: str, input: dict
+) -> str:
+    """Execute a task management tool."""
+    if name == "task_create":
+        desc = input.get("description", "")
+        if not desc:
+            return "Error: description is required"
+        task_id = manager.create(desc)
+        return f"Created {task_id}: {desc}"
+    elif name == "task_update":
+        task_id = input.get("id", "")
+        status = input.get("status", "")
+        if not task_id or not status:
+            return "Error: id and status are required"
+        ok = manager.update(task_id, status)
+        return f"Updated {task_id} → {status}" if ok else f"Error: task {task_id} not found"
+    elif name == "task_list":
+        status = input.get("status")
+        tasks = manager.list(status)
+        if not tasks:
+            return "(no tasks)"
+        return "\n".join(f"{t.id} [{t.status}]: {t.description}" for t in tasks)
+    else:
+        return f'Error: unknown task tool "{name}"'
+
+TASK_TOOLS = [
+    TASK_CREATE_TOOL_DEFINITION,
+    TASK_UPDATE_TOOL_DEFINITION,
+    TASK_LIST_TOOL_DEFINITION,
+]
+
