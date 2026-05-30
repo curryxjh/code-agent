@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 from src.llm.types import Tool, Message
 from src.token_counter import estimate_message_tokens

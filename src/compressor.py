@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from src.llm.types import (
     Message, LLMProvider, TextBlock, ToolUseBlock, ToolResultBlock, ChatOptions
