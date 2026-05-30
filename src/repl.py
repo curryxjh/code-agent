@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import sys
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable, Awaitable
 
@@ -64,6 +66,124 @@ def parse_command(text: str) -> str:
     return text.strip().split()[0].lower() if text.strip() else ""
 
 
+def _char_width(ch: str) -> int:
+    """Terminal display width of a single character."""
+    cp = ord(ch)
+    if cp > 0xFFFF:
+        return 2
+    if unicodedata.east_asian_width(ch) in ("F", "W"):
+        return 2
+    return 1
+
+
+def _read_exact(fd: int, n: int) -> bytes:
+    """Read exactly *n* bytes from *fd* (blocks until all arrive)."""
+    buf = b""
+    while len(buf) < n:
+        chunk = os.read(fd, n - len(buf))
+        if not chunk:
+            return buf
+        buf += chunk
+    return buf
+
+
+def _read_line(prompt: str) -> str | None:
+    """
+    Read a line using cbreak mode with manual UTF-8 decoding.
+
+    Bypasses readline / libedit entirely so that CJK backspace works
+    correctly regardless of terminal IUTF8 settings.
+    Returns None on EOF (Ctrl-D) or Ctrl-C.
+    """
+    import tty
+    import termios
+
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+
+    fd = sys.stdin.fileno()
+    old_attrs = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        chars: list[str] = []
+
+        while True:
+            b = os.read(fd, 1)
+            if not b:
+                return None
+
+            byte = b[0]
+
+            # Enter
+            if byte in (0x0A, 0x0D):
+                sys.stdout.write("\r\n")
+                sys.stdout.flush()
+                return "".join(chars)
+
+            # Backspace / DEL
+            if byte in (0x7F, 0x08):
+                if chars:
+                    removed = chars.pop()
+                    w = _char_width(removed)
+                    sys.stdout.write("\b \b" * w)
+                    sys.stdout.flush()
+                continue
+
+            # Ctrl-C
+            if byte == 0x03:
+                sys.stdout.write("\r\n")
+                sys.stdout.flush()
+                return None
+
+            # Ctrl-D — EOF when line is empty
+            if byte == 0x04:
+                if not chars:
+                    sys.stdout.write("\r\n")
+                    sys.stdout.flush()
+                    return None
+                continue
+
+            # Ctrl-U — clear entire line
+            if byte == 0x15:
+                while chars:
+                    w = _char_width(chars.pop())
+                    sys.stdout.write("\b \b" * w)
+                sys.stdout.flush()
+                continue
+
+            # Escape sequences (arrow keys, etc.) — skip
+            if byte == 0x1B:
+                next_b = os.read(fd, 1)
+                if next_b and next_b[0] == 0x5B:
+                    os.read(fd, 1)
+                continue
+
+            # Skip other control characters
+            if byte < 0x20:
+                continue
+
+            # Decode UTF-8 (1–4 bytes).
+            # Use _read_exact to guarantee all continuation bytes arrive
+            # (cbreak VMIN=1 may return partial reads from os.read).
+            if byte < 0x80:
+                char = chr(byte)
+            elif byte < 0xC0:
+                continue  # stray continuation byte
+            elif byte < 0xE0:
+                char = (b + _read_exact(fd, 1)).decode("utf-8", errors="replace")
+            elif byte < 0xF0:
+                char = (b + _read_exact(fd, 2)).decode("utf-8", errors="replace")
+            else:
+                char = (b + _read_exact(fd, 3)).decode("utf-8", errors="replace")
+
+            if char and char != "\ufffd":
+                chars.append(char)
+                sys.stdout.write(char)
+                sys.stdout.flush()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
+
+
 class Repl:
     """
     Interactive REPL with built-in commands.
@@ -114,11 +234,24 @@ class Repl:
 
     async def run(self) -> None:
         """Run the REPL interactively (reads from stdin)."""
-        print("AI Coding Agent (type /help for commands, /exit to quit)\n")
+        prompt = self._config.prompt
+        use_cbreak = sys.stdin.isatty()
 
         while True:
             try:
-                raw = input(self._config.prompt)
+                if use_cbreak:
+                    raw = _read_line(prompt)
+                    if raw is None:
+                        print("Goodbye!")
+                        break
+                else:
+                    # Non-TTY: fall back to simple line reading
+                    sys.stdout.write(prompt)
+                    sys.stdout.flush()
+                    raw = sys.stdin.readline()
+                    if not raw:
+                        break
+                    raw = raw.rstrip("\n")
             except (EOFError, KeyboardInterrupt):
                 print("\nGoodbye!")
                 break
